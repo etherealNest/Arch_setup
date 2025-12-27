@@ -132,7 +132,7 @@ pkgs_BASE=(
 pacman -S --needed "${pkgs_BASE[@]}"
 
 # Добавляение пользователя sudo
-groupadd plugdev
+groupadd plugdev # требование solaar
 groupadd informant # требование пакета AUR.
 useradd -m -G wheel,plugdev,informant -s /bin/bash plasterr
 passwd plasterr
@@ -283,6 +283,7 @@ pkgs_NETWORK=(
     networkmanager          # необходимо для работы сети
     iwd                     # управляет подключением wi-fi вместо wpa_supplicant
     firewalld               # фаерволл
+    systemd-resolvconf      # для работы некоторых VPN | взято из wiki
 )
 pacman -S --needed "${pkgs_NETWORK[@]}"
 ## Указываю явно использовать iwd в конфиге NM
@@ -295,12 +296,27 @@ systemctl enable systemd-resolved.service # Отвечает за DNS и тд.
 ln -sf ../run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf
 ## Запуск службы Networkmanager | требует ЗАПУСКА systemd-resolved 
 systemctl enable NetworkManager.service 
+## Настройка DNS
+### Явно заставляю использовать systemd-resolved
+nano /etc/NetworkManager/conf.d/dns.conf 
++ [main]
++ dns=systemd-resolved
+### Создаю конфиг по которому будет опредяться DNS systemd-resolved
+mkdir -p /etc/systemd/resolved.conf.d/
+nano /etc/systemd/resolved.conf.d/dns_main.conf
++ [Resolve]
++ DNS=9.9.9.9#dns.quad9.net
++ Domains=~.
++ FallbackDNS=
++ DNSOverTLS=yes
 ## Запуск службы firewalld
 systemctl enable firewalld.service
-# Настройка Bluetooth
-## Установка пакетов и запуск службы
+## Настройка Bluetooth
+### Установка пакетов и запуск службы
 pacman -S --needed bluez bluez-utils
 systemctl enable bluetooth.service
+## Заметка: в cat /etc/resolv.conf указан ip на котором принимает запросы systemd-resolved
+## Сам systemd-resolved можно настроить на использование adguardhome
 
 # Настройка PipeWire
 ## Установка основного пакета и доп пакетов указанных в wiki
@@ -355,6 +371,14 @@ pkgs_oth=(
 )
 pacman -S --needed ${pkgs_oth[@]}
 
+# Включение многоядерной сборки Make
+## Узнать точнее количество потоков
+nproc
+## Установить полученное количество в конфиг
+sudo nano /etc/makepkg.conf
+- #MAKEFLAGS="-j2"
++ MAKEFLAGS="-j12"
+
 # Пакеты Paru
 ## Установка самого Paru
 git clone https://aur.archlinux.org/paru.git && cd paru && makepkg -si && cd .. && rm -rf paru
@@ -387,6 +411,7 @@ pkgs_PARU=(
     syncthingtray-qt6           # синхронизация
     peazip                      # Архиватор
     ttf-meslo-nerd-font-powerlevel10k # Шрифты для темы zsh
+    fsearch                     # местный аналог everything
     )
 paru -S ${pkgs_PARU[@]}
 
@@ -423,3 +448,4 @@ sudo nano /etc/xdg/reflector/reflector.conf
 systemctl start reflector.service
 systemctl enable reflector.timer
 systemctl status reflector.timer
+
