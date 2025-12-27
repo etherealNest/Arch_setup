@@ -194,8 +194,7 @@ pkgs_KDE=(
     kdeconnect                                      # kdeconnect
 
     sddm sddm-kcm qt6-declarative                   # всё для экрана блокировки.
-    noto-fonts noto-fonts-emoji                     # шрифты
-    noto-fonts-extra ttf-roboto                     # шрифты
+    noto-fonts noto-fonts-emoji ttf-roboto          # шрифты
     fcitx5-im                                       # метод ввода
     snapper btrfs-assistant                         # создание снимков btrfs
     flatpak                                         # просто flatpak
@@ -292,18 +291,10 @@ nano /etc/NetworkManager/conf.d/wifi_backend.conf
 + wifi.backend=iwd
 ## Запустить службу зависимость для Networkmanager
 systemctl enable systemd-resolved.service # Отвечает за DNS и тд.
-## Создание символической ссылки на stub systemd-resolved, который подхватит Networkmanager
-ln -sf ../run/systemd/resolve/stub-resolv.conf /etc/resolv.conf
-// ссылку попарвить
-// создавать ссылку в chroot не получиться, делать это нужно не находясь в chroot
-// \\ ln -sf ../run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf
-// \\  ссылка на замечание (https://wiki.archlinux.org/title/Systemd-resolved#DNS)
-## Запуск службы Networkmanager
+## Создание символической ссылки на stub systemd-resolved, который подхватит Networkmanager | СОЗДАНИЕ с chroot
+ln -sf ../run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf
+## Запуск службы Networkmanager | требует ЗАПУСКА systemd-resolved 
 systemctl enable NetworkManager.service 
-// ТРЕБУЕТ ПРЕДВАРИТЕЛЬНО ЗАПУСКА systemd-resolved 
-// ТРЕБУЕТ plasma-nm 
-// так же проверить ли запущено networkManager-wait-online.service после основного запуска
-// убедиться что не запущено systemd-networkd.service (ссылка на замечание https://wiki.archlinux.org/title/Network_configuration#Network_management)
 ## Запуск службы firewalld
 systemctl enable firewalld.service
 # Настройка Bluetooth
@@ -351,7 +342,6 @@ pkgs_oth=(
 
     steam               # steam
 
-
     obsidian            # Заметки
 
     adguardhome         # DNS фильтрация
@@ -365,14 +355,7 @@ pkgs_oth=(
 )
 pacman -S --needed ${pkgs_oth[@]}
 
-    protonplus          # конфигурация для запуска игр
-    portproton          # настройка и запуск игр
-    syncthingtray-qt6   # синхронизация
-
-
 # Пакеты Paru
-## Вход от имени пользователя
-su - plasterr
 ## Установка самого Paru
 git clone https://aur.archlinux.org/paru.git && cd paru && makepkg -si && cd .. && rm -rf paru
 ## Пакеты Paru
@@ -389,7 +372,9 @@ pkgs_PARU=(
     vmware-keymaps              # Ставится как зависимость к vmware
     vmware-workstation          # VM Ware
     librewolf-bin                # Браузер
-    protontricks                # Взято и образа Bazzite                    
+    protonplus                  # конфигурация для запуска игр
+    portproton                  # настройка и запуск игр
+    protontricks                # Взято и образа Bazzite
     proton-ge-custom-bin        # Кастомная версия proton
     ttf-gentium-basic           # Шрифт указанный в wiki libreoffice
     gdown                       # Прямая загрузка по ссылок Google Drive
@@ -399,6 +384,7 @@ pkgs_PARU=(
     wondershaper-git            # Ограничитель пропускной способности сети
     nordvpn-bin                 # VPN
     portmaster-bin              # Portmaster
+    syncthingtray-qt6           # синхронизация
     peazip                      # Архиватор
     ttf-meslo-nerd-font-powerlevel10k # Шрифты для темы zsh
     )
