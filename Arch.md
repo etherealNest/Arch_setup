@@ -132,7 +132,9 @@ hwclock --systohc
 # Настройка локализации
 ## В файле /etc/locale.gen расскомментировать нужные мне локализации.
 sed -i 's/#\s*en_US\.UTF-8 UTF-8/en_US\.UTF-8 UTF-8/' /etc/locale.gen
-sed -i 's/#\s*ru_RU\.UTF-8 UTF-8/ru_RU.UTF-8 UTF-8/' /etc/locale.gen
+sed -i 's/#\s*ru_RU\.UTF-8 UTF-8/ru_RU\.UTF-8 UTF-8/' /etc/locale.gen
+grep -B 1 -A 1 'en_US\.UTF-8 UTF-8' /etc/locale.gen
+grep -B 1 -A 1 'ru_RU\.UTF-8 UTF-8' /etc/locale.gen
 ## Генерируем локали
 locale-gen
 ## Устанавливаем предпочтительный язык системы.
@@ -142,7 +144,8 @@ EOF
 
 # Добавление репозитория x86 пакетов multilib
 ## Требуется в файле /etc/pacman.conf расскоментировать строки:
-sed -i '/^#\s*\[multilib\]/,/^#\s*Include/ s/^#\s*//' pacman.conf
+sed -i '/^#\s*\[multilib\]/,/^#\s*Include/ s/^#\s*//' /etc/pacman.conf
+grep -B 2 -A 2 '\[multilib\]' /etc/pacman.conf
 ## Обновляем репозитории.
 pacman -Syu
 
@@ -171,6 +174,7 @@ groupadd plugdev # требование solaar
 groupadd informant # требование пакета AUR.
 useradd -m -G wheel,plugdev,informant -s /bin/bash plasterr
 sed -i '/^#\s*%wheel\s*ALL=(ALL:ALL)\s*ALL/ s/^#\s*//' /etc/sudoers
+grep -B 1 -A 1 '%wheel\s*ALL=(ALL:ALL)\s*ALL' /etc/sudoers
 passwd plasterr
 
 # Продолжаю настройку btrfs
@@ -411,6 +415,7 @@ pkgs_oth=(
     solaar              # софт для управлением устройствами Logitech
     code                # редактор кода
     baobab              # анализ использования диска
+    gimp gimp-help-hu   # gimp
     vlc vlc-plugins-all # VLC и плагины
 )
 pacman -S --needed ${pkgs_oth[@]}
@@ -425,7 +430,7 @@ sudo nano /etc/makepkg.conf
 
 # Настройка Reflactor на автообновление зеркал
 ## Настройка параметров запуска службы. В конфиг файле закомментировать сток значения
-sudo cat > /etc/xdg/reflector/reflector.conf << EOF
+cat > /etc/xdg/reflector/reflector.conf << EOF
 -c France,Germany,
 --sort rate
 -a 6
@@ -466,7 +471,7 @@ paru -S peazip                      # Архиватор
 paru -S ttf-meslo-nerd-font-powerlevel10k # Шрифты для темы zsh
 paru -S syncthingtray-qt6           # синхронизация
 paru -S fsearch                     # местный аналог everything
-
+paru -S xnviewmp                    # просмотр фото
 
 ## Установка шрифтов Windows 11
 paru -G ttf-ms-win11 && cd ttf-ms-win11
@@ -498,7 +503,8 @@ flatpak install flathub io.github.mezoahmedii.Picker # Random
 
 
 
-
-
-
-dmsetup table root # Должно проверить работоспособность функции trim
+# Проверка работы trim
+genfstab -U # проверяем наличие discard=async в монтировании
+cat /sys/fs/btrfs/YOUR_UUID/discard # при отсутсвии в монтировании проверка в sysfs
+dmsetup table root # проверка LUKS
+sudo fstrim -v / # тест на практике
