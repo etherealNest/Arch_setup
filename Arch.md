@@ -27,23 +27,26 @@ btrfs subvolume create /mnt/@
 btrfs subvolume create /mnt/@home
 btrfs subvolume create /mnt/@log
 btrfs subvolume create /mnt/@pkg
+btrfs subvolume create /mnt/@swap
 ## Произвожу размонтирование с целью монтирования как подтомов.
 umount /dev/sda2
 
 ## Монтирование подтомов и создание папок
 mount -o subvol=@,compress=zstd /dev/sda2 /mnt
 
-mkdir -p /mnt/home && mkdir -p /mnt/var/log && mkdir -p /mnt/var/cache/pacman/pkg
-
-mount -o subvol=@home,compress=zstd /dev/sda2 /mnt/home
-mount -o subvol=@log,compress=zstd /dev/sda2 /mnt/var/log
-mount -o subvol=@pkg,compress=zstd /dev/sda2 /mnt/var/cache/pacman/pkg
+mount --mkdir -o subvol=@home,compress=zstd /dev/sda2 /mnt/home
+mount --mkdir -o subvol=@log,compress=zstd /dev/sda2 /mnt/var/log
+mount --mkdir -o subvol=@pkg,compress=zstd /dev/sda2 /mnt/var/cache/pacman/pkg
+mount --mkdir -o subvol=@swap,compress=no,nodatacow /dev/sda2 /mnt/swap
 
 ## Cоздаю папку boot и монтирую /boot.
-mkdir -p /mnt/boot && mount /dev/sda1 /mnt/boot
+mount --mkdir /dev/sda1 /mnt/boot
 
-## Активируем раздел SWAP
-swapon /dev/sda3
+## Добавление файла подкачки
+btrfs filesystem mkswapfile --size 16g --uuid clear /mnt/swap/swapfile
+## Активация файла подкачки
+swapon /mnt/swap/swapfile
+## Крайне важно не забыть добавить в список загрузки fstab
 
 # Если я хочу отключить сжатие, я прописываю:
 # btrfs property set [путь] compression no
