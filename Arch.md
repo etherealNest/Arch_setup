@@ -1,4 +1,4 @@
-=== Начало установки ===
+=== Подготовка ===
 # Загрузившись в GParted Live отформатировать диск по такой схеме:
 https://pixvid.org/images/2025/12/23/5bhvO.png
 
@@ -18,29 +18,38 @@ fdisk -l
 fdisk /dev/sda
 https://pixvid.org/images/2025/12/23/5bqQF.png
 
-_---МОНТИРОВАНИЕ---_
-# Монитирование разделов учитывая, что у нас btrfs
-## Монтирую / .
-mount /dev/sda2 /mnt
-## Cоздаю подтома .
+# Создание и монтирование разделов
+## Создание и монтирование зашифрованного корневого раздела.
+cryptsetup -v luksFormat /dev/sda2
+cryptsetup open /dev/sda2 root
+## Создание файловой системе на разблокированном LUKS
+mkfs.btrfs /dev/mapper/root
+## Монтирование корневого тома в /mnt
+mount /dev/mapper/root /mnt
+## Проверка работает ли маппинг (?) как надо
+umount /mnt
+cryptsetup close root
+cryptsetup open /dev/sda2 root
+mount /dev/mapper/root /mnt
+
+## Монитирование разделов учитывая, что у нас btrfs
+## Так как корень смонтирован на пред. этапе, переход к созданию подтомов
+## Cоздаю подтома
 btrfs subvolume create /mnt/@
 btrfs subvolume create /mnt/@home
 btrfs subvolume create /mnt/@log
 btrfs subvolume create /mnt/@pkg
 btrfs subvolume create /mnt/@swap
 ## Произвожу размонтирование с целью монтирования как подтомов.
-umount /dev/sda2
+umount /mnt
 
 ## Монтирование подтомов и создание папок
-mount -o subvol=@,compress=zstd /dev/sda2 /mnt
+mount -o subvol=@,compress=zstd /dev/mapper/root /mnt
 
-mount --mkdir -o subvol=@home,compress=zstd /dev/sda2 /mnt/home
-mount --mkdir -o subvol=@log,compress=zstd /dev/sda2 /mnt/var/log
-mount --mkdir -o subvol=@pkg,compress=zstd /dev/sda2 /mnt/var/cache/pacman/pkg
-mount --mkdir -o subvol=@swap,compress=no,nodatacow /dev/sda2 /mnt/swap
-
-## Cоздаю папку boot и монтирую /boot.
-mount --mkdir /dev/sda1 /mnt/boot
+mount --mkdir -o subvol=@home,compress=zstd /dev/mapper/root /mnt/home
+mount --mkdir -o subvol=@log,compress=zstd /dev/mapper/root /mnt/var/log
+mount --mkdir -o subvol=@pkg,compress=zstd /dev/mapper/root /mnt/var/cache/pacman/pkg
+mount --mkdir -o subvol=@swap,compress=zstd /dev/mapper/root /mnt/swap
 
 ## Добавление файла подкачки
 btrfs filesystem mkswapfile --size 16g --uuid clear /mnt/swap/swapfile
@@ -48,27 +57,27 @@ btrfs filesystem mkswapfile --size 16g --uuid clear /mnt/swap/swapfile
 swapon /mnt/swap/swapfile
 ## Крайне важно не забыть добавить в список загрузки fstab
 
+## Настройка раздела boot
+mount --mkdir /dev/sda1 /mnt/boot
+
 # Если я хочу отключить сжатие, я прописываю:
 # btrfs property set [путь] compression no
 # Если я хочу отключить CoW, я прописываю chattr +С
 # Проверка осуществляется командой lsattr -d [путь]
 # Есть отключён CoW отключено и сжатие.
 # -R chattr применяет рекурсивно 
----______________---
 ========================
-
-=== Установка ===
 
 # Обновим зеркала
 reflector --verbose --download-timeout 4 -c France,Germany, --sort rate -a 6 -l 20 -p https --save /etc/pacman.d/mirrorlist
-// Стоит не забыть создать после сервис в системе.
 
 # Устанавливаем консольную расскладку и шрифт по умолчанию.
-## Это делается заранее, так как ядро будет ругаться на отсутсвие этого файла.
+## Это делается заранее, так как mkinitcpio ругается на отсутствие этого файла.
 mkdir /mnt/etc
-nano /mnt/etc/vconsole.conf
-+ KEYMAP=us
-+ FONT=cyr-sun16
+cat > /mnt/etc/vconsole.conf << EOF
+KEYMAP=us
+FONT=cyr-sun16
+EOF
 # Устанавливаем основные пакеты до chroot
 pkgs=(
     base linux-zen linux-firmware nano              # Базовые утилиты
@@ -79,7 +88,33 @@ pkgs=(
 pacstrap -K /mnt "${pkgs[@]}"
 
 # Генерация списка разделов для автоматического монтирования при запуске системы
-genfstab -U /mnt >> /mnt/etc/fstab
+## Список сделанных монтирований | сверить с вручную написанными 
+genfstab -U /mnt
+## Определяю UUID в переменных
+BTRFS_UUID=$(blkid -s UUID -o value /dev/mapper/root) && echo "btrfs: $BTRFS_UUID"
+EFI_UUID=$(blkid -s UUID -o value /dev/sda1) && echo "EFI: $EFI_UUID"
+## Вношу в файл ручную конфигурацию
+cat > /mnt/etc/fstab << EOF
+# Добавление конфигурации fstab
+# <file system> <dir> <type> <options> <dump> <pass>
+
+# Разделы BTRFS
+# /dev/mapper/root
+UUID=${BTRFS_UUID}  /   btrfs   rw,noatime,compress=zstd:3,discard=async,space_cache=v2,subvol=/@    0 0
+# /dev/mapper/root
+UUID=${BTRFS_UUID}  /home   btrfs   rw,noatime,compress=zstd:3,discard=async,space_cache=v2,subvol=/@home    0 0
+# /dev/mapper/root
+UUID=${BTRFS_UUID}  /var/log   btrfs    rw,noatime,compress=zstd:3,discard=async,space_cache=v2,subvol=/@log 0 0
+# /dev/mapper/root
+UUID=${BTRFS_UUID}  /var/cache/pacman/pkg   btrfs   rw,noatime,compress=zstd:3,discard=async,space_cache=v2,subvol=/@pkg 0 0
+# /dev/mapper/root
+UUID=${BTRFS_UUID}  /swap   btrfs   rw,noatime,compress=zstd:3,discard=async,space_cache=v2,subvol=/@swap    0 0
+
+# Раздел boot
+UUID=${EFI_UUID}  /boot   vfat    rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro    0 2
+# SWAP
+/swap/swapfile  none    swap    defaults    0 0
+EOF
 
 # Переход в chroot
 arch-chroot /mnt
@@ -93,31 +128,28 @@ systemctl enable systemd-timesyncd.service
 ### Тут возможно редактирование конфигурации /etc/systemd/timesyncd.conf но стоит оставить настройки по умолчанию.
 ## Синхронизируем аппаратные часы.
 hwclock --systohc
-## Проверяем
-timedatectl status
 
 # Настройка локализации
 ## В файле /etc/locale.gen расскомментировать нужные мне локализации.
-nano /etc/locale.gen
-!= "#" en_US.UTF-8 UTF-8
-!= "#" ru_RU.UTF-8 UTF-8
+sed -i 's/#\s*en_US\.UTF-8 UTF-8/en_US\.UTF-8 UTF-8/' /etc/locale.gen
+sed -i 's/#\s*ru_RU\.UTF-8 UTF-8/ru_RU.UTF-8 UTF-8/' /etc/locale.gen
 ## Генерируем локали
 locale-gen
 ## Устанавливаем предпочтительный язык системы.
-nano /etc/locale.conf
-+ LANG=ru_RU.UTF-8
+cat > /etc/locale.conf << EOF
+LANG=ru_RU.UTF-8
+EOF
 
 # Добавление репозитория x86 пакетов multilib
 ## Требуется в файле /etc/pacman.conf расскоментировать строки:
-nano /etc/pacman.conf
-!= "#" [multilib]
-!= "#" Include = /etc/pacman.d/mirrorlist
+sed -i '/^#\s*\[multilib\]/,/^#\s*Include/ s/^#\s*//' pacman.conf
 ## Обновляем репозитории.
 pacman -Syu
 
 # Имя ПК
-nano /etc/hostname
-+ [имя]
+cat > /etc/hostname << EOF
+arch-pc1
+EOF
 
 # Добавление пароля root
 passwd root
@@ -138,9 +170,8 @@ pacman -S --needed "${pkgs_BASE[@]}"
 groupadd plugdev # требование solaar
 groupadd informant # требование пакета AUR.
 useradd -m -G wheel,plugdev,informant -s /bin/bash plasterr
+sed -i '/^#\s*%wheel\s*ALL=(ALL:ALL)\s*ALL/ s/^#\s*//' /etc/sudoers
 passwd plasterr
-nano /etc/sudoers
-!= "#" %wheel      ALL=(ALL:ALL) ALL 
 
 # Продолжаю настройку btrfs
 ## Вход от лица пользователя
@@ -171,10 +202,6 @@ lsblk --discard
 systemctl enable fstrim.timer
 systemctl status fctrim.timer
 cat /usr/lib/systemd/system/fstrim.timer
-## Отключаем непрервный TRIM.
-nano /etc/fstab
-## Убираем из строчек discard
-!="discard"
 
 ## Драйвера GPU + их x86 версии
 pacman -S --needed \
@@ -196,6 +223,7 @@ pkgs_KDE=(
     gst-plugins-ugly                                # кодеры и декодеры медиа
     kdeconnect                                      # kdeconnect
 
+    arch-install-scripts                            # скрипты arch LiveCD напр genfstab
     sddm sddm-kcm qt6-declarative                   # всё для экрана блокировки.
     noto-fonts noto-fonts-emoji ttf-roboto          # шрифты
     fcitx5-im                                       # метод ввода
@@ -290,9 +318,10 @@ pkgs_NETWORK=(
 )
 pacman -S --needed "${pkgs_NETWORK[@]}"
 ## Указываю явно использовать iwd в конфиге NM
-nano /etc/NetworkManager/conf.d/wifi_backend.conf
-+ [device]
-+ wifi.backend=iwd
+cat > /etc/NetworkManager/conf.d/wifi_backend.conf << EOF
+[device]
+wifi.backend=iwd
+EOF
 ## Запустить службу зависимость для Networkmanager
 systemctl enable systemd-resolved.service # Отвечает за DNS и тд.
 ## Создание символической ссылки на stub systemd-resolved, который подхватит Networkmanager | СОЗДАНИЕ с chroot
@@ -301,17 +330,19 @@ ln -sf ../run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf
 systemctl enable NetworkManager.service 
 ## Настройка DNS
 ### Явно заставляю использовать systemd-resolved
-nano /etc/NetworkManager/conf.d/dns.conf 
-+ [main]
-+ dns=systemd-resolved
+cat > /etc/NetworkManager/conf.d/dns.conf << EOF
+[main]
+dns=systemd-resolved
+EOF
 ### Создаю конфиг по которому будет опредяться DNS systemd-resolved
 mkdir -p /etc/systemd/resolved.conf.d/
-nano /etc/systemd/resolved.conf.d/dns_main.conf
-+ [Resolve]
-+ DNS=9.9.9.9#dns.quad9.net
-+ Domains=~.
-+ FallbackDNS=
-+ DNSOverTLS=yes
+cat > /etc/systemd/resolved.conf.d/dns_main.conf << EOF
+[Resolve]
+DNS=9.9.9.9#dns.quad9.net
+Domains=~.
+FallbackDNS=
+DNSOverTLS=yes
+EOF
 ## Запуск службы firewalld
 systemctl enable firewalld.service
 ## Настройка Bluetooth
@@ -338,37 +369,47 @@ pacman -S easyeffects \
     calf lsp-plugins-lv2 mda.lv2 yelp zam-plugins-lv2
 ## Уже в системе из AUR будет скачан пакет шумодав noisetorch
 
+# Редактирование /etc/mkinitcpio.conf | добавление хуков для работы LUSK
+nano /etc/mkinitcpio.conf
+## Добавление модулей для работы клавиатуры с USB HUB
+MODULES=(usbhid xhci_hcd)
+## Редактирование хуков
+HOOKS=(base systemd keyboard autodetect microcode modconf kms keymap sd-vconsole block sd-encrypt filesystems fsck)
+### keyboard стоит до autodetect, для работы всех клавиатур даже после загрузки.
+### sd-vconsole стоит перед block, а sd-encrypt после
+## Пересборка образа initramfs
+mkinitcpio -P
+
 # Установка загрузчика
 ## В корне от chroot выполеить команду
 bootctl install
 ## Настройка загрузчика
-nano /boot/loader/loader.conf
-+ default  arch.conf
-+ timeout  5
-+ console-mode max
-+ editor   no
+cat > /boot/loader/loader.conf << EOF
+default  arch.conf
+timeout  5
+console-mode max
+editor   no
+EOF
 ## Добавление записи
-nano /boot/loader/entries/arch.conf
-+ title   Arch Linux
-+ linux   /vmlinuz-linux-zen
-+ initrd  /amd-ucode.img
-+ initrd  /initramfs-linux-zen.img
-+ options root="LABEL=Arch" rw rootflags=subvol=@
+### Определение переменных
+LUKS_UUID=$(blkid -s UUID -o value /dev/sda2) && echo "LUKS: $LUKS_UUID"
+### Запись
+cat > /boot/loader/entries/arch.conf << EOF
+title   Arch Linux
+linux   /vmlinuz-linux-zen
+initrd  /amd-ucode.img
+initrd  /initramfs-linux-zen.img
+options rd.luks.name=${LUKS_UUID}=root root=/dev/mapper/root rd.luks.options=discard
+EOF
 
 # Установка остальных пакетов
 pkgs_oth=(
     pacman-contrib      # набор утилит pacman | pactree -rs
-
     steam               # steam
-
     obsidian            # Заметки
-
-    adguardhome         # DNS фильтрация
     qbittorrent         # торрент-клиент
-
     solaar              # софт для управлением устройствами Logitech
     code                # редактор кода
-
     baobab              # анализ использования диска
     vlc vlc-plugins-all # VLC и плагины
 )
@@ -382,41 +423,50 @@ sudo nano /etc/makepkg.conf
 - #MAKEFLAGS="-j2"
 + MAKEFLAGS="-j12"
 
+# Настройка Reflactor на автообновление зеркал
+## Настройка параметров запуска службы. В конфиг файле закомментировать сток значения
+sudo cat > /etc/xdg/reflector/reflector.conf << EOF
+-c France,Germany,
+--sort rate
+-a 6
+-l 20
+-p https
+--save /etc/pacman.d/mirrorlist
+EOF
+systemctl start reflector.service
+systemctl enable reflector.timer
+systemctl status reflector.timer
+
 # Пакеты Paru
 ## Установка самого Paru
 git clone https://aur.archlinux.org/paru.git && cd paru && makepkg -si && cd .. && rm -rf paru
 ## Пакеты Paru
-pkgs_PARU=(
-    informant                   # не позволяет обновиться при новостях
-    pamac-aur                   # управление пакетами
-    ffmpeg-full                 # Полный пакет ffmpeg
-                                # .это рекомендовалось в Arch Wiki в ffmpeg
-    kde-thumbnailer-apk          # Для отображения ярлыков apk файлов
-    raw-thumbnailer              # Для отображения raw файлов
-                                 # .Взято из Wiki Dolphine
-    noisetorch                  # Шумоподавление микрофона
-    # ayugram-desktop            # AyuGram
-    vmware-keymaps              # Ставится как зависимость к vmware
-    vmware-workstation          # VM Ware
-    librewolf-bin                # Браузер
-    protonplus                  # конфигурация для запуска игр
-    portproton                  # настройка и запуск игр
-    protontricks                # Взято и образа Bazzite
-    proton-ge-custom-bin        # Кастомная версия proton
-    ttf-gentium-basic           # Шрифт указанный в wiki libreoffice
-    gdown                       # Прямая загрузка по ссылок Google Drive
-    betterdiscord-installer     # Установщик betterdiscord
-    obs-studio-git              # OBS Studio
-    ab-download-manager-bin     # Альтернатива ADM | требует расширения
-    wondershaper-git            # Ограничитель пропускной способности сети
-    nordvpn-bin                 # VPN
-    portmaster-bin              # Portmaster
-    syncthingtray-qt6           # синхронизация
-    peazip                      # Архиватор
-    ttf-meslo-nerd-font-powerlevel10k # Шрифты для темы zsh
-    fsearch                     # местный аналог everything
-    )
-paru -S ${pkgs_PARU[@]}
+### Пакетов много, ставлю их все по отдельности
+paru -S informant                   # не позволяет обновиться при новостях
+paru -S pamac-aur                   # управление пакетами
+paru -S ffmpeg-full                 # Полный пакет ffmpeg | это рекомендовалось в Arch Wiki в ffmpeg
+paru -S kde-thumbnailer-apk         # Для отображения ярлыков apk файлов
+paru -S raw-thumbnailer             # Для отображения raw файлов | Взято из Wiki Dolphine
+paru -S noisetorch                  # Шумоподавление микрофона
+paru -S ayugram-desktop             # AyuGram
+paru -S vmware-keymaps vmware-workstation # vmware-keymaps cтавится как зависимость к vmware
+paru -S librewolf-bin               # Браузер
+paru -S protonplus                  # конфигурация для запуска игр
+paru -S portproton                  # настройка и запуск игр
+paru -S protontricks                # Взято и образа Bazzite
+paru -S proton-ge-custom-bin        # Кастомная версия proton
+paru -S ttf-gentium-basic           # Шрифт указанный в wiki libreoffice
+paru -S gdown                       # Прямая загрузка по ссылок Google Drive
+paru -S betterdiscord-installer     # Установщик betterdiscord
+paru -S obs-studio-git              # OBS Studio
+paru -S ab-download-manager-bin     # Альтернатива ADM | требует расширения
+paru -S wondershaper-git            # Ограничитель пропускной способности сети
+paru -S nordvpn-bin                 # VPN
+paru -S peazip                      # Архиватор
+paru -S ttf-meslo-nerd-font-powerlevel10k # Шрифты для темы zsh
+paru -S syncthingtray-qt6           # синхронизация
+paru -S fsearch                     # местный аналог everything
+
 
 ## Установка шрифтов Windows 11
 paru -G ttf-ms-win11 && cd ttf-ms-win11
@@ -430,6 +480,11 @@ paru -S btrfsmaintenance-git
 ### Включаем его как сервис
 sudo systemctl enable btrfsmaintenance-refresh
 
+# Пакеты треюующие особой настройки после установки
+pacman -S adguardhome               # DNS фильтрация
+paru -S portmaster-bin              # Portmaster
+paru -S nordvpn-bin                 # VPN
+
 # Установка пакетов Flatpak
 flatpak install flathub io.github.flattool.Warehouse # управление flatpak пакетами
 flatpak install flathub com.github.tchx84.Flatseal # разрешения flatpak пакетов
@@ -439,16 +494,11 @@ flatpak install flathub net.ankiweb.Anki # Anki
 flatpak install flathub com.bitwarden.desktop # Bitwarden
 flatpak install flathub io.github.mezoahmedii.Picker # Random
 
-# Настройка Reflactor на автообновление зеркал
-## Настройка параметров запуска службы. В конфиг файле закомментировать сток значения
-sudo nano /etc/xdg/reflector/reflector.conf
-+ -c France,Germany,
-+ --sort rate
-+ -a 6
-+ -l 20
-+ -p https
-+ --save /etc/pacman.d/mirrorlist
-systemctl start reflector.service
-systemctl enable reflector.timer
-systemctl status reflector.timer
 
+
+
+
+
+
+
+dmsetup table root # Должно проверить работоспособность функции trim
