@@ -71,7 +71,7 @@ mount --mkdir /dev/nvme0n1p1 /mnt/boot
 ========================
 
 # Обновим зеркала
-reflector --verbose --download-timeout 4 -c France,Germany, --sort age -a 6 -l 20 -p https --save /etc/pacman.d/mirrorlist
+reflector --verbose --download-timeout 4 -c France,Germany, --sort rate -a 6 -l 20 -p https --save /etc/pacman.d/mirrorlist
 
 # Устанавливаем консольную расскладку и шрифт по умолчанию.
 ## Это делается заранее, так как mkinitcpio ругается на отсутствие этого файла.
@@ -118,14 +118,6 @@ UUID=${EFI_UUID}  /boot   vfat    rw,relatime,fmask=0022,dmask=0022,codepage=437
 /swap/swapfile  none    swap    defaults    0 0
 EOF
 
-# Конфигурация гибернации
-## Изменяем параметр размера файла подскачки на максимальное уменьшение.
-cat > /mnt/etc/tmpfiles.d/hibernation_image_size.conf << EOF
-#    Path                   Mode UID  GID  Age Argument
-w    /sys/power/image_size  -    -    -    -   0
-EOF
-cat /mnt/etc/tmpfiles.d/hibernation_image_size.conf
-
 # Переход в chroot
 arch-chroot /mnt
 
@@ -168,9 +160,9 @@ EOF
 passwd root
 
 # Установка пакетов через pacman
-## Базовые пакеьы
+## Базовые пакеты
 pkgs_BASE=(
-    amd-ucode sudo                      # необходимо для нормальной работы
+    amd-ucode sudo vi                   # необходимо для нормальной работы
     base-devel git                      # Базовые утилиты
     man-db man-pages texinfo            # пакеты для работы с документацией
     7zip tar libarchive zip unzip unrar # пакеты для работы с архивами
@@ -184,7 +176,10 @@ groupadd -r plugdev # требование solaar
 groupadd -r libvirt # требование libvirt
 groupadd -r informant # требование пакета AUR.
 useradd -m -G wheel,plugdev,informant,libvirt -s /bin/bash plasterr
-sed -i '/^#\s*%wheel\s*ALL=(ALL:ALL)\s*ALL/ s/^#\s*//' /etc/sudoers
+sed -i '/^#\s*%wheel\s*ALL=(ALL:ALL)\s*ALL/ s/^#\s*//' /etc/sudoers > /etc/sudoers.new
+export EDITOR="cp /etc/sudoers.new"
+visudo
+rm /etc/sudoers.new
 grep -B 1 -A 1 '%wheel\s*ALL=(ALL:ALL)\s*ALL' /etc/sudoers
 passwd plasterr
 groups plasterr
@@ -210,14 +205,6 @@ ls -la
 sudo snapper --no-dbus -c home create-config /home
 sudo snapper --no-dbus -c root create-config / 
 exit
-
-# Провекрка поддержки TRIM и его включение.
-lsblk --discard
-## Если в DISC-GRAN и DISC-MAX не нулевые значение, это означает поддержку TRIM.
-## Запускаем TRIM | проверка службы | просмотр интервала
-systemctl enable fstrim.timer
-systemctl status fctrim.timer
-cat /usr/lib/systemd/system/fstrim.timer
 
 ## Драйвера GPU + их x86 версии
 pacman -S --needed \
@@ -253,77 +240,6 @@ pacman -S --needed "${pkgs_KDE[@]}"
 ### Запуск службы sddm
 systemctl enable sddm.service
 
-## Пакеты предложенные в archinstall
-pkgs_ARCHINSTALL=(
-    smartmontools                                   # проверка здоровья накопителей
-    wget wireless_tools wpa_supplicant xdg-utils    # предлогались archinstall | noto
-    btop vim openssh                                # предлогались archinstall | htop был заменён на btop
-)
-pacman -S --needed "${pkgs_ARCHINSTALL[@]}"
-
-## Выборка из kde-multimedia-meta
-pkgs_KDE_multimedia_meta=(
-    kmix                                            # микшер звука
-    kdenlive                                        # видео редактор
-    kwave                                           # аудио редактор
-)
-pacman -S --needed "${pkgs_KDE_multimedia_meta[@]}"
-
-## Выборка из kde-graphics-meta
-pkgs_KDE_graphics_meta=(
-    arianna                      # электронная читалка книг
-    colord-kde                   # что-то связанное с colord !!!
-    gwenview                     # просмотр фото
-    kcolorchooser                # палитра цветов
-    kolourpaint                  # paint
-    kruler                       # экранная линейка
-    okular                       # просмотр pdf и прочее
-    svgpart                      # отображение svg
-)
-pacman -S --needed "${pkgs_KDE_graphics_meta[@]}"
-
-## Выборка из kde-utilities-meta
-pkgs_KDE_utilities_meta=(
-    ark                         # архиватор
-    isoimagewriter              # запись iso
-    kalk                        # калькулятор
-    kate                        # текстовый редактор
-    kbackup                     # содание бэкапов
-    kcharselect                 # таблица символов
-    kclock                      # часы
-    kdebugsettings              # debug настройки
-    kdf                         # мониторинг дисков
-    kdialog                     # вызов диалоговых окон
-    kfind                       # поиск файлов
-    kgpg                        # что-то связано с подписями
-    konsole                     # терминал KDE
-    ktimer                      # таймер с запуском команд
-    markdownpart                # компонент поддержки markdown
-    sweeper                     # очистка временныз файлов
-    yakuake                     # выпадающий терминал
-)
-pacman -S --needed "${pkgs_KDE_utilities_meta[@]}"
-
-# Из группы kde-network
-pkgs_KDE_network=(
-    kdenetwork-filesharing      # Позволяет шерить папку через samba
-    krdc                        # Подключение по rpd + vnc
-    krfb                        # Позволяет мне шерить свой ПК через vnc
-    kio-zeroconf                # насколько понимаю что-то делает сам с сетью
-)
-pacman -S --needed "${pkgs_KDE_network[@]}"
-
-# Установка LibreOffice
-pkgs_OFFICE=(
-    libreoffice-fresh libreoffice-fresh-ru 
-    # Пакеты шрифтов указанные в Wiki. Один находится в AUR!
-    ttf-caladea ttf-carlito ttf-dejavu ttf-liberation
-    ttf-linux-libertine-g noto-fonts
-    adobe-source-code-pro-fonts adobe-source-sans-fonts
-    adobe-source-serif-fonts
-)
-pacman -S --needed "${pkgs_OFFICE[@]}"
-
 # Настройка сети
 ## Установка пакетов
 pkgs_NETWORK=(
@@ -331,6 +247,7 @@ pkgs_NETWORK=(
     iwd                     # управляет подключением wi-fi вместо wpa_supplicant
     firewalld               # фаерволл
     systemd-resolvconf      # для работы некоторых VPN | взято из wiki
+    dnsmasq                 # для работы hotspot
 )
 pacman -S --needed "${pkgs_NETWORK[@]}"
 ## Указываю явно использовать iwd в конфиге NM
@@ -341,7 +258,9 @@ EOF
 ## Запустить службу зависимость для Networkmanager
 systemctl enable systemd-resolved.service # Отвечает за DNS и тд.
 ## Создание символической ссылки на stub systemd-resolved, который подхватит Networkmanager | СОЗДАНИЕ с chroot
+exit
 ln -sf ../run/systemd/resolve/stub-resolv.conf /mnt/etc/resolv.conf
+arch-chroot
 ## Запуск службы Networkmanager | требует ЗАПУСКА systemd-resolved 
 systemctl enable NetworkManager.service 
 ## Настройка DNS
@@ -350,11 +269,12 @@ cat > /etc/NetworkManager/conf.d/dns.conf << EOF
 [main]
 dns=systemd-resolved
 EOF
+cat /etc/NetworkManager/conf.d/dns.conf
 ### Создаю конфиг по которому будет опредяться DNS systemd-resolved
 mkdir -p /etc/systemd/resolved.conf.d/
 cat > /etc/systemd/resolved.conf.d/dns_main.conf << EOF
 [Resolve]
-DNS=9.9.9.9#dns.quad9.net
+DNS=9.9.9.9#dns.quad9.net 2620:fe::fe
 Domains=~.
 FallbackDNS=
 DNSOverTLS=yes
@@ -369,22 +289,13 @@ systemctl enable bluetooth.service
 ## Заметка: в cat /etc/resolv.conf указан ip на котором принимает запросы systemd-resolved
 ## Сам systemd-resolved можно настроить на использование adguardhome
 
-# Настройка PipeWire
-## Установка основного пакета и доп пакетов указанных в wiki
-pacman -S --needed pipewire lib32-pipewire
-    wireplumber \
-    pipewire-audio \
-    pipewire-alsa \
-    pipewire-pulse \
-    pipewire-jack lib32-pipewire-jack
-## Проверка запуска сокета
-systemctl --user status pipewire-pulse.socket
-## Просто интересный сайт для настройки наушников
-https://autoeq.app/
-## Установка easyeffects для настройки в системе и его плагинов
-pacman -S easyeffects \
-    calf lsp-plugins-lv2 mda.lv2 yelp zam-plugins-lv2
-## Уже в системе из AUR будет скачан пакет шумодав noisetorch
+# Конфигурация гибернации
+## Изменяем параметр размера файла подскачки на максимальное уменьшение.
+cat > /mnt/etc/tmpfiles.d/hibernation_image_size.conf << EOF
+#    Path                   Mode UID  GID  Age Argument
+w    /sys/power/image_size  -    -    -    -   0
+EOF
+cat /mnt/etc/tmpfiles.d/hibernation_image_size.conf
 
 # Установка загрузчика
 ## В корне от chroot выполеить команду
@@ -432,6 +343,111 @@ grep -B 2 -A 2 '^HOOKS' /etc/mkinitcpio.conf # проверяю результа
 ## Пересборка образа initramfs
 mkinitcpio -P
 
+
+### Перезагрузка ###
+
+
+# Настройка Reflactor на автообновление зеркал
+## Настройка параметров запуска службы. В конфиг файле закомментировать сток значения
+cat > /etc/xdg/reflector/reflector.conf << EOF
+-c France,Germany,
+--sort rate
+-a 6
+-l 20
+-p https
+--save /etc/pacman.d/mirrorlist
+EOF
+systemctl enable reflector.timer
+systemctl start reflector.service
+systemctl status reflector.timer
+pacman -Syu
+
+# Установка paru
+git clone https://aur.archlinux.org/paru.git && cd paru && makepkg -si && cd .. && rm -rf paru
+## Утановка браузера
+paru -S librewolf-bin
+
+
+# Провекрка поддержки TRIM и его включение.
+lsblk --discard
+## Если в DISC-GRAN и DISC-MAX не нулевые значение, это означает поддержку TRIM.
+## Запускаем TRIM | проверка службы | просмотр интервала
+systemctl enable fstrim.timer
+systemctl status fstrim.timer
+cat /usr/lib/systemd/system/fstrim.timer
+
+## Пакеты предложенные в archinstall
+pkgs_ARCHINSTALL=(
+    smartmontools                                   # проверка здоровья накопителей
+    wget wireless_tools wpa_supplicant xdg-utils    # предлогались archinstall | noto
+    btop vim openssh                                # предлогались archinstall | htop был заменён на btop
+)
+sudo pacman -S --needed "${pkgs_ARCHINSTALL[@]}"
+
+## Выборка из kde-multimedia-meta
+pkgs_KDE_multimedia_meta=(
+    kmix                                            # микшер звука
+    kdenlive                                        # видео редактор
+    kwave                                           # аудио редактор
+)
+sudo pacman -S --needed "${pkgs_KDE_multimedia_meta[@]}"
+
+## Выборка из kde-graphics-meta
+pkgs_KDE_graphics_meta=(
+    arianna                      # электронная читалка книг
+    colord-kde                   # что-то связанное с colord !!!
+    gwenview                     # просмотр фото
+    kcolorchooser                # палитра цветов
+    kolourpaint                  # paint
+    kruler                       # экранная линейка
+    okular                       # просмотр pdf и прочее
+    svgpart                      # отображение svg
+)
+sudo pacman -S --needed "${pkgs_KDE_graphics_meta[@]}"
+
+## Выборка из kde-utilities-meta
+pkgs_KDE_utilities_meta=(
+    ark                         # архиватор
+    isoimagewriter              # запись iso
+    kalk                        # калькулятор
+    kate                        # текстовый редактор
+    kbackup                     # содание бэкапов
+    kcharselect                 # таблица символов
+    kclock                      # часы
+    kdebugsettings              # debug настройки
+    kdf                         # мониторинг дисков
+    kdialog                     # вызов диалоговых окон
+    kfind                       # поиск файлов
+    kgpg                        # что-то связано с подписями
+    konsole                     # терминал KDE
+    ktimer                      # таймер с запуском команд
+    marksman
+    markdownpart                # компонент поддержки markdown
+    sweeper                     # очистка временныз файлов
+    yakuake                     # выпадающий терминал
+)
+pacman -S --needed "${pkgs_KDE_utilities_meta[@]}"
+
+# Из группы kde-network
+pkgs_KDE_network=(
+    kdenetwork-filesharing      # Позволяет шерить папку через samba
+    krdc                        # Подключение по rpd + vnc
+    krfb                        # Позволяет мне шерить свой ПК через vnc
+    kio-zeroconf                # насколько понимаю что-то делает сам с сетью
+)
+pacman -S --needed "${pkgs_KDE_network[@]}"
+
+# Установка LibreOffice
+pkgs_OFFICE=(
+    libreoffice-fresh libreoffice-fresh-ru 
+    # Пакеты шрифтов указанные в Wiki. Один находится в AUR!
+    ttf-caladea ttf-carlito ttf-dejavu ttf-liberation
+    ttf-linux-libertine-g noto-fonts
+    adobe-source-code-pro-fonts adobe-source-sans-fonts
+    adobe-source-serif-fonts
+)
+pacman -S --needed "${pkgs_OFFICE[@]}"
+
 # Установка остальных пакетов
 pkgs_oth=(
     pacman-contrib      # набор утилит pacman | pactree -rs
@@ -454,27 +470,25 @@ nproc
 sed -i 's/^#\s*MAKEFLAGS=.*/MAKEFLAGS="-j10"/' /etc/makepkg.conf
 grep -B 1 -A 1 '^MAKEFLAGS=.*' /etc/makepkg.conf
 
-# Настройка Reflactor на автообновление зеркал
-## Настройка параметров запуска службы. В конфиг файле закомментировать сток значения
-cat > /etc/xdg/reflector/reflector.conf << EOF
--c France,Germany,
---sort age
--a 6
--l 20
--p https
---save /etc/pacman.d/mirrorlist
-EOF
-systemctl enable reflector.timer
-
-# Перезапуск системы и проверка reflector
-systemctl start reflector.service
-systemctl status reflector.timer
+# Настройка PipeWire
+## Установка основного пакета и доп пакетов указанных в wiki
+sudo pacman -S --needed pipewire lib32-pipewire \
+    wireplumber \
+    pipewire-audio \
+    pipewire-alsa \
+    pipewire-pulse \
+    pipewire-jack lib32-pipewire-jack
+## Проверка запуска сокета
+systemctl --user status pipewire-pulse.socket
+## Просто интересный сайт для настройки наушников
+https://autoeq.app/
+## Установка easyeffects для настройки в системе и его плагинов
+pacman -S easyeffects \
+    calf lsp-plugins-lv2 mda.lv2 yelp zam-plugins-lv2
+## Уже в системе из AUR будет скачан пакет шумодав noisetorch
 
 # Пакеты Paru
-## Установка самого Paru
-git clone https://aur.archlinux.org/paru.git && cd paru && makepkg -si && cd .. && rm -rf paru
-## Пакеты Paru
-### Пакетов много, ставлю их все по отдельности
+## Пакетов много, ставлю их все по отдельности
 paru -S informant                   # не позволяет обновиться при новостях
 paru -S pamac-aur                   # управление пакетами
 paru -S ffmpeg-full                 # Полный пакет ffmpeg | это рекомендовалось в Arch Wiki в ffmpeg
@@ -482,7 +496,6 @@ paru -S kde-thumbnailer-apk         # Для отображения ярлыко
 paru -S raw-thumbnailer             # Для отображения raw файлов | Взято из Wiki Dolphine
 paru -S noisetorch                  # Шумоподавление микрофона
 paru -S ayugram-desktop             # AyuGram
-paru -S librewolf-bin               # Браузер
 paru -S protonplus                  # конфигурация для запуска игр
 paru -S portproton                  # настройка и запуск игр
 paru -S protontricks                # Взято и образа Bazzite
@@ -511,6 +524,7 @@ cd .. && rm -rf ttf-ms-win11
 paru -S btrfsmaintenance-git
 ## Включаем его как сервис
 sudo systemctl enable btrfsmaintenance-refresh
+sudo systemctl status btrfsmaintenance-refresh
 ## Уведомления при критических ошибках btrfs
 ## Установить пакет AUR
 paru -S --needed btrfs-desktop-notification # libnotify является зависимостью
@@ -562,12 +576,14 @@ pkgs_QEMU_deps=(
     openbsd-netcat # удалённое управление по SSH
 )
 pacman -S --needed --asdeps "${pkgs_QEMU_deps[@]}"
+paru -S --needed edk2-ovmf-fedora # UEFI для qeumu с поддержкой Secure Boot
 ## Запуск сокетов для запуска служб по требованию
 systemctl enable libvirtd.socket
+systemctl status libvirtd.socket
 systemctl enable virtlogd.socket
+systemctl status virtlogd.socket
 ## Проверка работы libvirt на уровне системы и пользователя
 virsh -c qemu:///system
 virsh -c qemu:///session
 ## Продолжить настрйоку в virt-manager
 
-paru -S --needed edk2-ovmf-fedora # UEFI для qeumu с поддержкой Secure Boot
