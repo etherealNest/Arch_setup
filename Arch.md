@@ -15,13 +15,13 @@ timedatectl
 # Сверка дисков
 fdisk -l
 # В случае неправильных Типов "Type" у разделов выполнить их правку через:
-fdisk /dev/sda
+fdisk /dev/nvme0n1
 https://pixvid.org/images/2025/12/23/5bqQF.png
 
 # Создание и монтирование разделов
 ## Создание и монтирование зашифрованного корневого раздела.
-cryptsetup -v luksFormat /dev/sda2
-cryptsetup open /dev/sda2 root
+cryptsetup -v luksFormat /dev/nvme0n1p2
+cryptsetup open /dev/nvme0n1p2 root
 ## Создание файловой системе на разблокированном LUKS
 mkfs.btrfs /dev/mapper/root
 ## Монтирование корневого тома в /mnt
@@ -29,7 +29,7 @@ mount /dev/mapper/root /mnt
 ## Проверка работает ли маппинг (?) как надо
 umount /mnt
 cryptsetup close root
-cryptsetup open /dev/sda2 root
+cryptsetup open /dev/nvme0n1p2 root
 mount /dev/mapper/root /mnt
 
 ## Монитирование разделов учитывая, что у нас btrfs
@@ -44,21 +44,23 @@ btrfs subvolume create /mnt/@swap
 umount /mnt
 
 ## Монтирование подтомов и создание папок
-mount -o subvol=@,compress=zstd /dev/mapper/root /mnt
+mount -o subvol=@,compress=zstd:1,noatime,discard=async,space_cache=v2 /dev/mapper/root /mnt
 
-mount --mkdir -o subvol=@home,compress=zstd /dev/mapper/root /mnt/home
-mount --mkdir -o subvol=@log,compress=zstd /dev/mapper/root /mnt/var/log
-mount --mkdir -o subvol=@pkg,compress=zstd /dev/mapper/root /mnt/var/cache/pacman/pkg
-mount --mkdir -o subvol=@swap,compress=zstd /dev/mapper/root /mnt/swap
+mount --mkdir -o subvol=@home,compress=zstd:1,noatime,discard=async,space_cache=v2 /dev/mapper/root /mnt/home
+mount --mkdir -o subvol=@log,compress=zstd:1,noatime,discard=async,space_cache=v2 /dev/mapper/root /mnt/var/log
+mount --mkdir -o subvol=@pkg,compress=zstd:1,noatime,discard=async,space_cache=v2 /dev/mapper/root /mnt/var/cache/pacman/pkg
+mount --mkdir -o subvol=@swap,compress=zstd:1,noatime,discard=async,space_cache=v2 /dev/mapper/root /mnt/swap
 
 ## Добавление файла подкачки
 btrfs filesystem mkswapfile --size 16g --uuid clear /mnt/swap/swapfile
 ## Активация файла подкачки
 swapon /mnt/swap/swapfile
+## Проверка аттрибутов файла подскачи, должно быть C
+lsattr -d /mnt/swap/swapfile
 ## Крайне важно не забыть добавить в список загрузки fstab
 
 ## Настройка раздела boot
-mount --mkdir /dev/sda1 /mnt/boot
+mount --mkdir /dev/nvme0n1p1 /mnt/boot
 
 # Если я хочу отключить сжатие, я прописываю:
 # btrfs property set [путь] compression no
@@ -69,7 +71,7 @@ mount --mkdir /dev/sda1 /mnt/boot
 ========================
 
 # Обновим зеркала
-reflector --verbose --download-timeout 4 -c France,Germany, --sort rate -a 6 -l 20 -p https --save /etc/pacman.d/mirrorlist
+reflector --verbose --download-timeout 4 -c France,Germany, --sort age -a 6 -l 20 -p https --save /etc/pacman.d/mirrorlist
 
 # Устанавливаем консольную расскладку и шрифт по умолчанию.
 ## Это делается заранее, так как mkinitcpio ругается на отсутствие этого файла.
@@ -92,7 +94,7 @@ pacstrap -K /mnt "${pkgs[@]}"
 genfstab -U /mnt
 ## Определяю UUID в переменных
 BTRFS_UUID=$(blkid -s UUID -o value /dev/mapper/root) && echo "btrfs: $BTRFS_UUID"
-EFI_UUID=$(blkid -s UUID -o value /dev/sda1) && echo "EFI: $EFI_UUID"
+EFI_UUID=$(blkid -s UUID -o value /dev/nvme0n1p1) && echo "EFI: $EFI_UUID"
 ## Вношу в файл ручную конфигурацию
 cat > /mnt/etc/fstab << EOF
 # Добавление конфигурации fstab
@@ -100,21 +102,29 @@ cat > /mnt/etc/fstab << EOF
 
 # Разделы BTRFS
 # /dev/mapper/root
-UUID=${BTRFS_UUID}  /   btrfs   rw,noatime,compress=zstd:3,discard=async,space_cache=v2,subvol=/@    0 0
+UUID=${BTRFS_UUID}  /   btrfs   rw,noatime,compress=zstd:1,discard=async,space_cache=v2,subvol=/@    0 0
 # /dev/mapper/root
-UUID=${BTRFS_UUID}  /home   btrfs   rw,noatime,compress=zstd:3,discard=async,space_cache=v2,subvol=/@home    0 0
+UUID=${BTRFS_UUID}  /home   btrfs   rw,noatime,compress=zstd:1,discard=async,space_cache=v2,subvol=/@home    0 0
 # /dev/mapper/root
-UUID=${BTRFS_UUID}  /var/log   btrfs    rw,noatime,compress=zstd:3,discard=async,space_cache=v2,subvol=/@log 0 0
+UUID=${BTRFS_UUID}  /var/log   btrfs    rw,noatime,compress=zstd:1,discard=async,space_cache=v2,subvol=/@log 0 0
 # /dev/mapper/root
-UUID=${BTRFS_UUID}  /var/cache/pacman/pkg   btrfs   rw,noatime,compress=zstd:3,discard=async,space_cache=v2,subvol=/@pkg 0 0
+UUID=${BTRFS_UUID}  /var/cache/pacman/pkg   btrfs   rw,noatime,compress=zstd:1,discard=async,space_cache=v2,subvol=/@pkg 0 0
 # /dev/mapper/root
-UUID=${BTRFS_UUID}  /swap   btrfs   rw,noatime,compress=zstd:3,discard=async,space_cache=v2,subvol=/@swap    0 0
+UUID=${BTRFS_UUID}  /swap   btrfs   rw,noatime,compress=zstd:1,discard=async,space_cache=v2,subvol=/@swap    0 0
 
 # Раздел boot
 UUID=${EFI_UUID}  /boot   vfat    rw,relatime,fmask=0022,dmask=0022,codepage=437,iocharset=ascii,shortname=mixed,utf8,errors=remount-ro    0 2
 # SWAP
 /swap/swapfile  none    swap    defaults    0 0
 EOF
+
+# Конфигурация гибернации
+## Изменяем параметр размера файла подскачки на максимальное уменьшение.
+cat > /mnt/etc/tmpfiles.d/hibernation_image_size.conf << EOF
+#    Path                   Mode UID  GID  Age Argument
+w    /sys/power/image_size  -    -    -    -   0
+EOF
+cat /mnt/etc/tmpfiles.d/hibernation_image_size.conf
 
 # Переход в chroot
 arch-chroot /mnt
@@ -170,12 +180,14 @@ pkgs_BASE=(
 pacman -S --needed "${pkgs_BASE[@]}"
 
 # Добавляение пользователя sudo
-groupadd plugdev # требование solaar
-groupadd informant # требование пакета AUR.
-useradd -m -G wheel,plugdev,informant -s /bin/bash plasterr
+groupadd -r plugdev # требование solaar
+groupadd -r libvirt # требование libvirt
+groupadd -r informant # требование пакета AUR.
+useradd -m -G wheel,plugdev,informant,libvirt -s /bin/bash plasterr
 sed -i '/^#\s*%wheel\s*ALL=(ALL:ALL)\s*ALL/ s/^#\s*//' /etc/sudoers
 grep -B 1 -A 1 '%wheel\s*ALL=(ALL:ALL)\s*ALL' /etc/sudoers
 passwd plasterr
+groups plasterr
 
 # Продолжаю настройку btrfs
 ## Вход от лица пользователя
@@ -347,6 +359,7 @@ Domains=~.
 FallbackDNS=
 DNSOverTLS=yes
 EOF
+cat /etc/systemd/resolved.conf.d/dns_main.conf
 ## Запуск службы firewalld
 systemctl enable firewalld.service
 ## Настройка Bluetooth
@@ -373,17 +386,6 @@ pacman -S easyeffects \
     calf lsp-plugins-lv2 mda.lv2 yelp zam-plugins-lv2
 ## Уже в системе из AUR будет скачан пакет шумодав noisetorch
 
-# Редактирование /etc/mkinitcpio.conf | добавление хуков для работы LUSK
-nano /etc/mkinitcpio.conf
-## Добавление модулей для работы клавиатуры с USB HUB
-MODULES=(usbhid xhci_hcd)
-## Редактирование хуков
-HOOKS=(base systemd keyboard autodetect microcode modconf kms keymap sd-vconsole block sd-encrypt filesystems fsck)
-### keyboard стоит до autodetect, для работы всех клавиатур даже после загрузки.
-### sd-vconsole стоит перед block, а sd-encrypt после
-## Пересборка образа initramfs
-mkinitcpio -P
-
 # Установка загрузчика
 ## В корне от chroot выполеить команду
 bootctl install
@@ -394,9 +396,13 @@ timeout  5
 console-mode max
 editor   no
 EOF
+cat /boot/loader/loader.conf
 ## Добавление записи
 ### Определение переменных
-LUKS_UUID=$(blkid -s UUID -o value /dev/sda2) && echo "LUKS: $LUKS_UUID"
+LUKS_UUID=$(blkid -s UUID -o value /dev/nvme0n1p2) && echo "LUKS: $LUKS_UUID"
+#### (РЕЗЕРВ, ДОЛЖНО РАБОТАТЬ АВТО) Получаем смещение файла подкачки и добавляем в переменную с целью АКТИВИРОВАТЬ ЭТО В ПАРАМЕТРАХ ЯДРА
+#####SWAP_OFFSET=$(btrfs inspect-internal map-swapfile -r /swap/swapfile)
+#####echo "SWAP OFFSET: $SWAP_OFFSET"
 ### Запись
 cat > /boot/loader/entries/arch.conf << EOF
 title   Arch Linux
@@ -405,6 +411,26 @@ initrd  /amd-ucode.img
 initrd  /initramfs-linux-zen.img
 options rd.luks.name=${LUKS_UUID}=root root=/dev/mapper/root rd.luks.options=discard
 EOF
+#### Необходимые части LUKS: "rd.luks.name=${LUKS_UUID}=root root=/dev/mapper/root"
+#### Для работы ассинхронного TRIM: "rd.luks.options=discard"
+#### (РЕЗЕРВ, ДОЛЖНО РАБОТАТЬ АВТО) Для работы режима гибернации "resume=/dev/mapper/root"
+#### (РЕЗЕРВ, ДОЛЖНО РАБОТАТЬ АВТО) Указывает смещение файла подкачки "resume_offset=${SWAP_OFFSET}"
+cat /boot/loader/entries/arch.conf
+
+# Редактирование /etc/mkinitcpio.conf | добавление хуков для работы LUSK
+## Добавление модулей для работы клавиатуры с USB HUB
+sed -i 's/^MODULES=()/MODULES=(usbhid xhci_hcd)/' /etc/mkinitcpio.conf
+grep -B 1 -A 1 '^MODULES=(.*)' /etc/mkinitcpio.conf
+## Редактирование хуков
+HOOKS_NUM=$(sed -n '/^HOOKS=/=' /etc/mkinitcpio.conf) # получаю номер строки с хуками
+sed -i "${HOOKS_NUM}s/^HOOKS=/#&/" /etc/mkinitcpio.conf # комментирую её
+sed -i "${HOOKS_NUM}a\HOOKS=(base systemd keyboard autodetect microcode modconf kms sd-vconsole block sd-encrypt filesystems fsck)" /etc/mkinitcpio.conf # добавляю свою строку
+grep -B 2 -A 2 '^HOOKS' /etc/mkinitcpio.conf # проверяю результат
+
+### keyboard стоит до autodetect, для работы всех клавиатур даже после загрузки.
+### sd-vconsole стоит перед block, а sd-encrypt после
+## Пересборка образа initramfs
+mkinitcpio -P
 
 # Установка остальных пакетов
 pkgs_oth=(
@@ -416,6 +442,7 @@ pkgs_oth=(
     code                # редактор кода
     baobab              # анализ использования диска
     gimp gimp-help-hu   # gimp
+    wireguard-tools     # wireguard
     vlc vlc-plugins-all # VLC и плагины
 )
 pacman -S --needed ${pkgs_oth[@]}
@@ -423,23 +450,24 @@ pacman -S --needed ${pkgs_oth[@]}
 # Включение многоядерной сборки Make
 ## Узнать точнее количество потоков
 nproc
-## Установить полученное количество в конфиг
-sudo nano /etc/makepkg.conf
-- #MAKEFLAGS="-j2"
-+ MAKEFLAGS="-j12"
+## Добавляем значение в кониг | я указал на 2 потока меньше чем есть в CPU
+sed -i 's/^#\s*MAKEFLAGS=.*/MAKEFLAGS="-j10"/' /etc/makepkg.conf
+grep -B 1 -A 1 '^MAKEFLAGS=.*' /etc/makepkg.conf
 
 # Настройка Reflactor на автообновление зеркал
 ## Настройка параметров запуска службы. В конфиг файле закомментировать сток значения
 cat > /etc/xdg/reflector/reflector.conf << EOF
 -c France,Germany,
---sort rate
+--sort age
 -a 6
 -l 20
 -p https
 --save /etc/pacman.d/mirrorlist
 EOF
-systemctl start reflector.service
 systemctl enable reflector.timer
+
+# Перезапуск системы и проверка reflector
+systemctl start reflector.service
 systemctl status reflector.timer
 
 # Пакеты Paru
@@ -454,7 +482,6 @@ paru -S kde-thumbnailer-apk         # Для отображения ярлыко
 paru -S raw-thumbnailer             # Для отображения raw файлов | Взято из Wiki Dolphine
 paru -S noisetorch                  # Шумоподавление микрофона
 paru -S ayugram-desktop             # AyuGram
-paru -S vmware-keymaps vmware-workstation # vmware-keymaps cтавится как зависимость к vmware
 paru -S librewolf-bin               # Браузер
 paru -S protonplus                  # конфигурация для запуска игр
 paru -S portproton                  # настройка и запуск игр
@@ -480,10 +507,16 @@ gdown --fuzzy "https://drive.google.com/file/d/15EFnB7dgbaoaT9C6liTnjNJyWpEPlrTA
 makepkg -si --skipinteg
 cd .. && rm -rf ttf-ms-win11
 
-## Помощник по btrfs 
+# Помощник по btrfs и уведомления
 paru -S btrfsmaintenance-git
-### Включаем его как сервис
+## Включаем его как сервис
 sudo systemctl enable btrfsmaintenance-refresh
+## Уведомления при критических ошибках btrfs
+## Установить пакет AUR
+paru -S --needed btrfs-desktop-notification # libnotify является зависимостью
+pacman -S --needed --asdeps libnotify 
+## Проверить файл конфигурации по адресу $HOME/.config/btrfs-desktop-notification.conf
+https://gitlab.com/Zesko/btrfs-desktop-notification
 
 # Пакеты треюующие особой настройки после установки
 pacman -S adguardhome               # DNS фильтрация
@@ -500,11 +533,41 @@ flatpak install flathub com.bitwarden.desktop # Bitwarden
 flatpak install flathub io.github.mezoahmedii.Picker # Random
 
 
-
-
-
 # Проверка работы trim
 genfstab -U # проверяем наличие discard=async в монтировании
 cat /sys/fs/btrfs/YOUR_UUID/discard # при отсутсвии в монтировании проверка в sysfs
 dmsetup table root # проверка LUKS
 sudo fstrim -v / # тест на практике
+
+# Настройка qeumu
+## Проверка поддержки виртуализации
+### Аппаратная поддержка виртуализации
+LC_ALL=C.UTF-8 lscpu | grep Virtualization
+### Поддкржка ядра
+zgrep CONFIG_KVM= /proc/config.gz
+lsmod | grep kvm
+### Поддержка Virtio
+zgrep VIRTIO /proc/config.gz
+lsmod | grep virtio
+## Установка пакетов
+pkgs_QEMU=(
+    qemu-full qemu-guest-agent
+    libvirt
+    virt-manager
+)
+pacman -S --needed "${pkgs_QEMU[@]}"
+pkgs_QEMU_deps=(
+    swtpm # для поддержки TPM в виртуальных машинах
+    dnsmasq # для настройки NAT и DHCP в виртуальных машинах
+    openbsd-netcat # удалённое управление по SSH
+)
+pacman -S --needed --asdeps "${pkgs_QEMU_deps[@]}"
+## Запуск сокетов для запуска служб по требованию
+systemctl enable libvirtd.socket
+systemctl enable virtlogd.socket
+## Проверка работы libvirt на уровне системы и пользователя
+virsh -c qemu:///system
+virsh -c qemu:///session
+## Продолжить настрйоку в virt-manager
+
+paru -S --needed edk2-ovmf-fedora # UEFI для qeumu с поддержкой Secure Boot
