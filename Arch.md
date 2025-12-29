@@ -291,11 +291,11 @@ systemctl enable bluetooth.service
 
 # Конфигурация гибернации
 ## Изменяем параметр размера файла подскачки на максимальное уменьшение.
-cat > /mnt/etc/tmpfiles.d/hibernation_image_size.conf << EOF
+cat > /etc/tmpfiles.d/hibernation_image_size.conf << EOF
 #    Path                   Mode UID  GID  Age Argument
 w    /sys/power/image_size  -    -    -    -   0
 EOF
-cat /mnt/etc/tmpfiles.d/hibernation_image_size.conf
+cat /etc/tmpfiles.d/hibernation_image_size.conf
 
 # Установка загрузчика
 ## В корне от chroot выполеить команду
