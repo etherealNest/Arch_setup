@@ -349,7 +349,7 @@ mkinitcpio -P
 
 # Настройка Reflactor на автообновление зеркал
 ## Настройка параметров запуска службы. В конфиг файле закомментировать сток значения
-cat > /etc/xdg/reflector/reflector.conf << EOF
+sudo cat > /etc/xdg/reflector/reflector.conf << EOF
 -c France,Germany,
 --sort rate
 -a 6
@@ -360,7 +360,7 @@ EOF
 systemctl enable reflector.timer
 systemctl start reflector.service
 systemctl status reflector.timer
-pacman -Syu
+sudo pacman -Syu
 
 # Установка paru
 git clone https://aur.archlinux.org/paru.git && cd paru && makepkg -si && cd .. && rm -rf paru
@@ -386,7 +386,6 @@ sudo pacman -S --needed "${pkgs_ARCHINSTALL[@]}"
 
 ## Выборка из kde-multimedia-meta
 pkgs_KDE_multimedia_meta=(
-    kmix                                            # микшер звука
     kdenlive                                        # видео редактор
     kwave                                           # аудио редактор
 )
@@ -426,7 +425,7 @@ pkgs_KDE_utilities_meta=(
     sweeper                     # очистка временныз файлов
     yakuake                     # выпадающий терминал
 )
-pacman -S --needed "${pkgs_KDE_utilities_meta[@]}"
+sudo pacman -S --needed "${pkgs_KDE_utilities_meta[@]}"
 
 # Из группы kde-network
 pkgs_KDE_network=(
@@ -435,7 +434,7 @@ pkgs_KDE_network=(
     krfb                        # Позволяет мне шерить свой ПК через vnc
     kio-zeroconf                # насколько понимаю что-то делает сам с сетью
 )
-pacman -S --needed "${pkgs_KDE_network[@]}"
+sudo pacman -S --needed "${pkgs_KDE_network[@]}"
 
 # Установка LibreOffice
 pkgs_OFFICE=(
@@ -446,7 +445,7 @@ pkgs_OFFICE=(
     adobe-source-code-pro-fonts adobe-source-sans-fonts
     adobe-source-serif-fonts
 )
-pacman -S --needed "${pkgs_OFFICE[@]}"
+sudo pacman -S --needed "${pkgs_OFFICE[@]}"
 
 # Установка остальных пакетов
 pkgs_oth=(
@@ -460,14 +459,17 @@ pkgs_oth=(
     gimp gimp-help-hu   # gimp
     wireguard-tools     # wireguard
     vlc vlc-plugins-all # VLC и плагины
+
+    bandwhich       # две несложные утилиты для анализа сети
+    sniffnet        # --//--
 )
-pacman -S --needed ${pkgs_oth[@]}
+sudo pacman -S --needed ${pkgs_oth[@]}
 
 # Включение многоядерной сборки Make
 ## Узнать точнее количество потоков
 nproc
 ## Добавляем значение в кониг | я указал на 2 потока меньше чем есть в CPU
-sed -i 's/^#\s*MAKEFLAGS=.*/MAKEFLAGS="-j10"/' /etc/makepkg.conf
+sudo sed -i 's/^#\s*MAKEFLAGS=.*/MAKEFLAGS="-j10"/' /etc/makepkg.conf
 grep -B 1 -A 1 '^MAKEFLAGS=.*' /etc/makepkg.conf
 
 # Настройка PipeWire
@@ -483,8 +485,9 @@ systemctl --user status pipewire-pulse.socket
 ## Просто интересный сайт для настройки наушников
 https://autoeq.app/
 ## Установка easyeffects для настройки в системе и его плагинов
-pacman -S easyeffects \
+sudo pacman -S easyeffects \
     calf lsp-plugins-lv2 mda.lv2 yelp zam-plugins-lv2
+### ВЫБРАТЬ 7
 ## Уже в системе из AUR будет скачан пакет шумодав noisetorch
 
 # Пакеты Paru
@@ -498,7 +501,7 @@ paru -S noisetorch                  # Шумоподавление микроф�
 paru -S ayugram-desktop             # AyuGram
 paru -S protonplus                  # конфигурация для запуска игр
 paru -S portproton                  # настройка и запуск игр
-paru -S protontricks                # Взято и образа Bazzite
+#paru -S protontricks                # Взято и образа Bazzite
 paru -S proton-ge-custom-bin        # Кастомная версия proton
 paru -S ttf-gentium-basic           # Шрифт указанный в wiki libreoffice
 paru -S gdown                       # Прямая загрузка по ссылок Google Drive
@@ -506,12 +509,15 @@ paru -S betterdiscord-installer     # Установщик betterdiscord
 paru -S obs-studio-git              # OBS Studio
 paru -S ab-download-manager-bin     # Альтернатива ADM | требует расширения
 paru -S wondershaper-git            # Ограничитель пропускной способности сети
-paru -S nordvpn-bin                 # VPN
 paru -S peazip                      # Архиватор
 paru -S ttf-meslo-nerd-font-powerlevel10k # Шрифты для темы zsh
 paru -S syncthingtray-qt6           # синхронизация
 paru -S fsearch                     # местный аналог everything
 paru -S xnviewmp                    # просмотр фото
+paru -S normcap tesseract \
+tesseract-data-eng \
+tesseract-data-rus \
+tesseract-data-deu wl-clipboard     # сканирование OCR
 
 ## Установка шрифтов Windows 11
 paru -G ttf-ms-win11 && cd ttf-ms-win11
@@ -520,22 +526,43 @@ gdown --fuzzy "https://drive.google.com/file/d/15EFnB7dgbaoaT9C6liTnjNJyWpEPlrTA
 makepkg -si --skipinteg
 cd .. && rm -rf ttf-ms-win11
 
+...
+
 # Помощник по btrfs и уведомления
-paru -S btrfsmaintenance-git
-## Включаем его как сервис
-sudo systemctl enable btrfsmaintenance-refresh
-sudo systemctl status btrfsmaintenance-refresh
+## Помощник по btrfs
+### Установить пакет pacman
+sudo pacman -S btrfsmaintenance
+### Отредактировать под свои нужды
+sudo nano /etc/default/btrfsmaintenance
+### Активировать таймеры 
+sudo /usr/share/btrfsmaintenance/btrfsmaintenance-refresh-cron.sh timer
+### Проверка активации служб
+systemctl list-timmers --all
 ## Уведомления при критических ошибках btrfs
-## Установить пакет AUR
+### Установить пакет AUR
 paru -S --needed btrfs-desktop-notification # libnotify является зависимостью
-pacman -S --needed --asdeps libnotify 
-## Проверить файл конфигурации по адресу $HOME/.config/btrfs-desktop-notification.conf
-https://gitlab.com/Zesko/btrfs-desktop-notification
+sudo pacman -S --needed --asdeps libnotify 
+### Конфигурация по умолчанию должна быть удовлетворительной
+### В настройках KDE во кладке автозапуск требуется включить "Btrfs desktop notification"
+### От имени root проверяем работоспособность | sudo не даёт возможности вносить изменения в /dev/kmsg
+echo "<4>kernel: BTRFS warning (device sda2): checksum error at logical 26702905344 on dev /dev/sda2, physical 12417105920, root 257, inode 7845, offset 7684096, length 4096, links 1 (path: test/Desktop/amss_corrupt.bin)" > /dev/kmsg
+echo "<2>kernel: BTRFS error (device sda2): bdev /dev/sda2 errs: wr 0, rd 0, flush 0, corrupt 2638, gen 0" > /dev/kmsg
+### Ожидаемое поведение: уведомление на робочем столе KDE
+### Доп. информация по ссылке: https://gitlab.com/Zesko/btrfs-desktop-notification
 
 # Пакеты треюующие особой настройки после установки
-pacman -S adguardhome               # DNS фильтрация
+sudo pacman -S adguardhome          # DNS фильтрация
+systemctl enable adguardhome
 paru -S portmaster-bin              # Portmaster
+##
 paru -S nordvpn-bin                 # VPN
+### Может запускаться слишком быстро 
+sudo systemctl edit nordvpnd
+[Unit]
+Wants=network-online.target
+After=network-online.target
+[Install]
+WantedBy=graphical.target
 
 # Установка пакетов Flatpak
 flatpak install flathub io.github.flattool.Warehouse # управление flatpak пакетами
@@ -569,21 +596,30 @@ pkgs_QEMU=(
     libvirt
     virt-manager
 )
-pacman -S --needed "${pkgs_QEMU[@]}"
+sudo pacman -S --needed "${pkgs_QEMU[@]}"
 pkgs_QEMU_deps=(
     swtpm # для поддержки TPM в виртуальных машинах
     dnsmasq # для настройки NAT и DHCP в виртуальных машинах
     openbsd-netcat # удалённое управление по SSH
 )
-pacman -S --needed --asdeps "${pkgs_QEMU_deps[@]}"
+sudo pacman -S --needed --asdeps "${pkgs_QEMU_deps[@]}"
 paru -S --needed edk2-ovmf-fedora # UEFI для qeumu с поддержкой Secure Boot
 ## Запуск сокетов для запуска служб по требованию
-systemctl enable libvirtd.socket
+systemctl enable --now libvirtd.socket
 systemctl status libvirtd.socket
-systemctl enable virtlogd.socket
+systemctl enable --now virtlogd.socket
 systemctl status virtlogd.socket
 ## Проверка работы libvirt на уровне системы и пользователя
 virsh -c qemu:///system
 virsh -c qemu:///session
 ## Продолжить настрйоку в virt-manager
+https://github.com/virtio-win/virtio-win-pkg-scripts/blob/master/README.md
 
+
+
+sudo pacman -S thefuck # плагин для zsh
+
+
+
+tree
+aarch64-linux-gnu-gcc
